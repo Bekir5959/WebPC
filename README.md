@@ -1,4 +1,4 @@
-# wstest
+# WebPC
 
 A high-performance Node.js gateway for streaming VNC (Virtual Network Computing) desktops to web clients using WebRTC. This project captures a VNC server's framebuffer, encodes screen updates as JPEG images, and streams them to connected clients with low latency. It also relays user input (mouse, keyboard) from clients back to the VNC server.
 
