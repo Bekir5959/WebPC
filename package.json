@@ -1,0 +1,29 @@
+{
+  "name": "WebPC",
+  "version": "1.0.0",
+  "description": "Web tabanlı VNC görüntü aktarımı ve kontrol sistemi",
+  "author": "Bekir5959",
+  "license": "MIT",
+  "dependencies": {
+    "@roamhq/wrtc": "^0.9.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.7.0",
+    "helmet": "^7.0.0",
+    "keysym": "^0.0.6",
+    "pino": "^8.15.0",
+    "prom-client": "^15.1.0",
+    "rfb2": "^0.2.2",
+    "sharp": "^0.34.3",
+    "simple-peer": "^9.11.1",
+    "ws": "^8.18.3",
+    "zod": "^3.23.8"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "lint": "eslint . --ext .js"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}

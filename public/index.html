@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebPC</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: radial-gradient(circle at center,#000 0%,#030303 60%,#0a0a0a 100%);
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif; /* Inter fontu */
+    }
+    canvas {
+      max-width: 100vw;
+      max-height: 100vh;
+      object-fit: contain;
+      image-rendering: pixelated; /* Pikselleşmeyi koru */
+      cursor: crosshair; /* Fare imleci */
+      outline: none; /* Odaklandığında oluşan çerçeveyi kaldır */
+      border-radius: 8px; /* Köşeleri yuvarla */
+      box-shadow: 0 4px 15px rgba(0, 255, 0, 0.5); /* Yeşil gölge */
+    }
+
+    /* Kontrol paneli */
+    #hud {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(0,0,0,0.6);
+      color: #0f0;
+      padding: 8px 12px;
+      font-size: 12px;
+      border-radius: 6px;
+      font-family: 'Inter', sans-serif;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    #toolbar {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      background: rgba(0,0,0,0.7);
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 6px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+    }
+    .btn:hover { background: rgba(0,255,0,0.1); }
+    .btn:active { background: rgba(0,255,0,0.2); }
+  </style>
+</head>
+<body>
+  <canvas id="screen" tabindex="0"></canvas>
+
+  <!-- Heads-Up Display -->
+  <div id="hud">FPS: <span id="fps">0</span></div>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <button id="btnFullscreen" class="btn">Tam Ekran</button>
+    <button id="btnControl" class="btn">Kontrolü Al</button>
+  </div>
+
+  <div id="loginOverlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.8);z-index:1000;">
+    <form id="loginForm" style="background:#111;padding:24px 32px;border:1px solid #0f0;border-radius:8px;display:flex;flex-direction:column;gap:12px;font-family:'Inter',sans-serif;">
+      <h2 style="color:#0f0;margin:0;font-weight:600;font-size:18px;text-align:center;">Kullanıcı Adı</h2>
+      <input id="txtUsername" type="text" placeholder="örn. ali" maxlength="16" required style="padding:8px 10px;border-radius:4px;border:1px solid #0f0;background:#000;color:#0f0;font-size:14px;" />
+      <button class="btn" type="submit" style="align-self:center;width:100px;">Giriş</button>
+      <span id="loginError" style="color:#f66;font-size:12px;display:none;">Bu kullanıcı adı kullanılıyor</span>
+    </form>
+  </div>
+
+  <script src="https://unpkg.com/simple-peer/simplepeer.min.js"></script>
+  <script>
+    const canvas = document.getElementById('screen');
+    // 2D bağlamını al, alpha: false ile daha iyi performans (opak çizimler için)
+    const ctx = canvas.getContext('2d', { alpha: false });
+    canvas.focus(); // Klavye olaylarını yakalamak için canvas'a odaklan
+
+    // Görüntü işleme için Web Worker
+    // Bu worker, ana iş parçacığını engellemeden JPEG verilerini işler, bu da performansı artırır.
+    const workerCode = `
+      self.onmessage = async ({ data }) => {
+        const { x, y, jpegData } = data;
+        try {
+          // JPEG verisini Blob'a dönüştür ve createImageBitmap ile bitmap oluştur
+          const blob = new Blob([jpegData], { type: 'image/jpeg' });
+          const bitmap = await createImageBitmap(blob);
+          // Bitmap'i ve konum bilgilerini ana iş parçacığına geri gönder
+          self.postMessage({ bitmap, x, y, width: bitmap.width, height: bitmap.height }, [bitmap]);
+        } catch (e) {
+          self.postMessage({ error: e.message }); // Hata durumunda hata mesajını gönder
+        }
+      };
+    `;
+    // Worker kodunu Blob olarak oluştur ve URL'sini al
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+
+    const frameQueue = []; // İşlenecek karelerin kuyruğu
+    let isFirstFrame = true; // İlk kare mi kontrolü
+
+    // Worker'dan gelen mesajları işle
+    worker.onmessage = ({ data }) => {
+      if (data.error) {
+        console.error("Worker hatası:", data.error);
+        return;
+      }
+      frameQueue.push(data); // Gelen kare verisini kuyruğa ekle
+    };
+
+    // Kareleri çizen döngü
+    // requestAnimationFrame kullanarak tarayıcının ekran yenileme hızına senkronize olur
+    function renderLoop() {
+      const now = performance.now();
+      while (frameQueue.length > 0) {
+        const { bitmap, x, y, width, height } = frameQueue.shift(); // Kuyruktan kare al
+        if (bitmap) {
+          // İlk kare ise ve tam ekran güncellemesi ise canvas boyutunu ayarla
+          if (isFirstFrame && x === 0 && y === 0) {
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width;
+              canvas.height = height;
+              console.log(`Canvas ayarlandı: ${width}x${height}`);
+            }
+            isFirstFrame = false;
+          }
+          ctx.drawImage(bitmap, x, y); // Bitmap'i canvas'a çiz
+          bitmap.close(); // Bitmap kaynağını serbest bırak
+        }
+      }
+      // FPS hesapla
+      frameCount++;
+      if (now - fpsLastTime >= 1000) {
+        document.getElementById('fps').textContent = frameCount;
+        frameCount = 0;
+        fpsLastTime = now;
+      }
+      requestAnimationFrame(renderLoop); // Bir sonraki kare için tekrar çağır
+    }
+    let frameCount = 0, fpsLastTime = performance.now();
+    renderLoop(); // Render döngüsünü başlat
+
+    let ws=null, peer=null, currentUsername=''; // bağlantılar
+
+    function connect(username){
+      ws = new WebSocket('ws://' + location.host + '/ws');
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({type:'login', username }));
+      };
+
+      ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+        if(msg.type==='login'){
+          if(msg.ok){
+            document.getElementById('loginOverlay').style.display='none';
+            startPeer();
+          }else{
+            document.getElementById('loginError').style.display='block';
+            ws.close();
+          }
+          return;
+        }
+        if(msg.type==='signal' && peer && !peer.destroyed){
+          peer.signal(msg.data);
+        }
+        if(msg.type==='control'){
+          handleControlMessage(msg);
+        }
+        // controller mesajları artık kullanıcıya gösterilmiyor
+      };
+
+      ws.onerror=console.error;
+      ws.onclose=()=>{ if(peer&&!peer.destroyed) peer.destroy(); };
+
+      function startPeer(){
+        peer=new SimplePeer({initiator:true,trickle:true});
+
+        peer.on('signal',data=>{ if(ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:'signal',data})); });
+        peer.on('connect',()=>console.log('WebRTC bağlantı hazır'));
+        peer.on('data',handlePeerData);
+        peer.on('close',()=>{isFirstFrame=true;frameQueue.length=0;});
+      }
+    }
+
+    function handlePeerData(data){
+      const view=new DataView(data.buffer);const x=view.getUint32(0);const y=view.getUint32(4);const jpegData=data.slice(8);
+      worker.postMessage({x,y,jpegData},[jpegData.buffer]);
+    }
+
+    document.getElementById('loginForm').addEventListener('submit',e=>{
+      e.preventDefault();
+      const uname=document.getElementById('txtUsername').value.trim();
+      if(uname){currentUsername=uname;connect(uname);}
+    });
+
+    // WebSocket bağlantısı
+    // ws.onopen = () => {
+    //   console.log("WS bağlantısı kuruldu.");
+    //   // WebRTC peer'ı başlat (başlatıcı olarak)
+    //   peer = new SimplePeer({ initiator: true, trickle: true });
+
+    //   // Peer'dan gelen sinyalleri WebSocket üzerinden sunucuya gönder
+    //   peer.on('signal', data => {
+    //     if (ws.readyState === WebSocket.OPEN) {
+    //       ws.send(JSON.stringify({ type: 'signal', data }));
+    //     }
+    //   });
+
+    //   // Peer bağlantısı kurulduğunda
+    //   peer.on('connect', () => {
+    //     console.log("✅ WebRTC peer bağlandı.");
+    //   });
+
+    //   // Peer'dan gelen veri (görüntü)
+    //   peer.on('data', data => {
+    //     // Gelen veriden X ve Y koordinatlarını oku (ilk 8 byte)
+    //     const view = new DataView(data.buffer);
+    //     const x = view.getUint32(0);
+    //     const y = view.getUint32(4);
+    //     const jpegData = data.slice(8); // Geri kalan JPEG verisi
+
+    //     // JPEG verisini worker'a gönder (transferable olarak)
+    //     worker.postMessage({ x, y, jpegData }, [jpegData.buffer]);
+    //   });
+
+    //   peer.on('error', err => console.error("WebRTC hatası:", err));
+    //   peer.on('close', () => {
+    //     console.log("WebRTC bağlantısı kapandı.");
+    //     isFirstFrame = true;
+    //     frameQueue.length = 0; // Kare kuyruğunu temizle
+    //   });
+    // };
+
+    // WebSocket'tan gelen mesajları işle
+    // ws.onmessage = e => {
+    //   const signalData = JSON.parse(e.data);
+    //   // Gelen sinyal bir WebRTC sinyali ise peer'a ilet
+    //   if (signalData.type === 'signal' && peer && !peer.destroyed) {
+    //     peer.signal(signalData.data);
+    //   }
+    // };
+
+    // ws.onerror = e => console.error("WS hatası:", e);
+    // ws.onclose = () => {
+    //   console.log("WS bağlantısı kapandı.");
+    //   if (peer && !peer.destroyed) peer.destroy(); // Peer'ı yok et
+    // };
+
+    // --- Mouse & Klavye Girişini Gönderme ---
+
+    // Sunucuya giriş olaylarını gönderen yardımcı fonksiyon
+    function sendInput(type, payload) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', inputType: type, payload }));
+      }
+    }
+
+    // Canvas üzerindeki fare koordinatlarını hesapla
+    function getCanvasCoord(e) {
+      const rect = canvas.getBoundingClientRect();
+      // Canvas'ın gerçek boyutuna göre ölçekleme yap
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = Math.floor((e.clientX - rect.left) * scaleX);
+      const y = Math.floor((e.clientY - rect.top) * scaleY);
+      return { x, y };
+    }
+
+    let currentMouseButtonMask = 0; // Basılı olan fare tuşlarının bit maskesi
+
+    // Fare hareketi
+    canvas.addEventListener('mousemove', e => {
+      const { x, y } = getCanvasCoord(e);
+      // Fare hareket ederken basılı olan tuşların maskesini gönder (sürükleme için önemli)
+      sendInput('mouseMove', { x, y, buttonMask: currentMouseButtonMask });
+    });
+
+    // Fare tuşu basılı
+    canvas.addEventListener('mousedown', e => {
+      const { x, y } = getCanvasCoord(e);
+      // Basılan tuşun maskesini mevcut maskeye ekle
+      currentMouseButtonMask |= (1 << e.button);
+      // Güncellenmiş maskeyi VNC sunucusuna gönder
+      sendInput('mouseDown', { x, y, buttonMask: currentMouseButtonMask });
+    });
+
+    // Fare tuşu bırakıldı
+    canvas.addEventListener('mouseup', e => {
+      const { x, y } = getCanvasCoord(e);
+      // Bırakılan tuşun maskesini mevcut maskeden çıkar
+      currentMouseButtonMask &= ~(1 << e.button);
+      // Güncellenmiş maskeyi VNC sunucusuna gönder
+      sendInput('mouseUp', { x, y, buttonMask: currentMouseButtonMask });
+    });
+
+    // Sağ tıklama ile tarayıcı bağlam menüsünün açılmasını engelle
+    canvas.addEventListener('contextmenu', e => {
+      e.preventDefault(); // Tarayıcının varsayılan bağlam menüsünü engelle
+    });
+
+    // --- Klavye Haritalaması ve Olayları ---
+
+    // X11 Keysym'lerinin string isimlerinden hexadecimal değerlerine haritalaması
+    // Bu harita, fiziksel tuşlar için standart X11 keysym'lerini içerir.
+    // VNC sunucusunun işletim sisteminde TRQ klavye düzeni ayarlıysa,
+    // bu keysym'ler doğru karakterleri üretecektir.
+    const PHYSICAL_KEY_KEYSYM_MAP = {
+        "Escape": 0xff1b,
+        "Digit1": 0x0031, "Digit2": 0x0032, "Digit3": 0x0033, "Digit4": 0x0034, "Digit5": 0x0035,
+        "Digit6": 0x0036, "Digit7": 0x0037, "Digit8": 0x0038, "Digit9": 0x0039, "Digit0": 0x0030,
+        "Minus": 0x002d, // -
+        "Equal": 0x003d, // =
+        "Backspace": 0xff08,
+        "Tab": 0xff09,
+        "KeyQ": 0x0071, // q
+        "KeyW": 0x0077, // w
+        "KeyE": 0x0065, // e
+        "KeyR": 0x0072, // r
+        "KeyT": 0x0074, // t
+        "KeyY": 0x0079, // y
+        "KeyU": 0x0075, // u
+        "KeyI": 0x0069, // i
+        "KeyO": 0x006f, // o
+        "KeyP": 0x0070, // p
+        "BracketLeft": 0x005b, // [
+        "BracketRight": 0x005d, // ]
+        "Enter": 0xff0d,
+        "ControlLeft": 0xffe3,
+        "KeyA": 0x0061, // a
+        "KeyS": 0x0073, // s
+        "KeyD": 0x0064, // d
+        "KeyF": 0x0066, // f
+        "KeyG": 0x0067, // g
+        "KeyH": 0x0068, // h
+        "KeyJ": 0x006a, // j
+        "KeyK": 0x006b, // k
+        "KeyL": 0x006c, // l
+        "Semicolon": 0x003b, // ;
+        "Quote": 0x0027, // '
+        "Backquote": 0x0060, // ` (key to the left of 1)
+        "ShiftLeft": 0xffe1,
+        "Backslash": 0x005c, // \
+        "KeyZ": 0x007a, // z
+        "KeyX": 0x0078, // x
+        "KeyC": 0x0063, // c
+        "KeyV": 0x0076, // v
+        "KeyB": 0x0062, // b
+        "KeyN": 0x006e, // n
+        "KeyM": 0x006d, // m
+        "Comma": 0x002c, // ,
+        "Period": 0x002e, // .
+        "Slash": 0x002f, // /
+        "ShiftRight": 0xffe2,
+        "AltLeft": 0xffe9,
+        "AltRight": 0xffea, // Genellikle AltGr tuşu olarak kullanılır
+        "Space": 0x0020, // Boşluk tuşu
+        "ControlRight": 0xffe4,
+
+        // Fonksiyon tuşları
+        "F1": 0xffbe, "F2": 0xffbf, "F3": 0xffc0, "F4": 0xffc1,
+        "F5": 0xffc2, "F6": 0xffc3, "F7": 0xffc4, "F8": 0xffc5,
+        "F9": 0xffc6, "F10": 0xffc7, "F11": 0xffc8, "F12": 0xffc9,
+
+        // Yön tuşları
+        "ArrowUp": 0xff52, "ArrowDown": 0xff54, "ArrowLeft": 0xff51, "ArrowRight": 0xff53,
+
+        // Diğer özel tuşlar
+        "Insert": 0xff63, "Delete": 0xffff,
+        "Home": 0xff50, "End": 0xff57,
+        "PageUp": 0xff55, "PageDown": 0xff56,
+        "NumLock": 0xff7f, "CapsLock": 0xffe5,
+        "ScrollLock": 0xff14, "Pause": 0xff13,
+        "PrintScreen": 0xff61,
+    };
+
+    // Klavye tuşuna basıldığında
+    canvas.addEventListener('keydown', e => {
+      e.preventDefault(); // Tarayıcının varsayılan davranışını engelle (kısayollar için önemli)
+
+      const keysym = PHYSICAL_KEY_KEYSYM_MAP[e.code];
+
+      if (keysym !== undefined) {
+        // Tuşun basılı olduğunu sunucuya bildir
+        sendInput('keyEvent', { keysym: keysym, down: true });
+      } else {
+        console.warn(`Bilinmeyen tuş kodu veya keysym bulunamadı: ${e.code}`);
+      }
+    });
+
+    // Klavye tuşu bırakıldığında
+    canvas.addEventListener('keyup', e => {
+      e.preventDefault(); // Tarayıcının varsayılan davranışını engelle
+
+      const keysym = PHYSICAL_KEY_KEYSYM_MAP[e.code];
+
+      if (keysym !== undefined) {
+        // Tuşun bırakıldığını sunucuya bildir
+        sendInput('keyEvent', { keysym: keysym, down: false });
+      } else {
+        console.warn(`Bilinmeyen tuş kodu veya keysym bulunamadı (keyup): ${e.code}`);
+      }
+    });
+
+    document.getElementById('btnFullscreen').addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        canvas.requestFullscreen().catch(console.error);
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    // Kontrol butonu
+    const btnControl=document.getElementById('btnControl');
+    let hasControl=false;
+    btnControl.addEventListener('click',()=>{
+      if(!ws) return;
+      if(hasControl){
+        ws.send(JSON.stringify({type:'control',action:'release'}));
+        hasControl=false;
+        btnControl.textContent='Kontrolü Al';
+      }else{
+        ws.send(JSON.stringify({type:'control',action:'request'}));
+      }
+    });
+
+    function handleControlMessage(msg){
+      if(msg.granted){
+        hasControl=true;
+        btnControl.textContent='Kontrolü Bırak';
+        // HUD güncellemesine gerek yok
+      } else if(msg.queued){
+        btnControl.textContent='Kuyrukta';
+      }
+    }
+  </script>
+</body>
+</html>
