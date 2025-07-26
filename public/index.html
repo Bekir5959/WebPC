@@ -220,7 +220,7 @@
 
     let ws=null, peer=null, currentUsername=''; // bağlantılar
     let hasControl = false;
-    let queuePosition = null;
+    let queuePosition = null; // null: sırada değil, number: sıradaki pozisyonu
     let timeRemaining = null;
     let estimatedWaitTime = null;
     let controllerUsername = null;
@@ -231,7 +231,9 @@
     let controlTimeLimit = 15; // default, will be updated from backend
 
     function connect(username){
-      ws = new WebSocket('ws://' + location.host + '/ws');
+      const wsProtocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+      const wsUrl = wsProtocol + location.host + '/ws';
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         ws.send(JSON.stringify({type:'login', username }));
@@ -286,10 +288,11 @@
       if(msg.granted){
         hasControl=true;
         document.getElementById('btnControl').textContent='Kontrolü Bırak';
-        queuePosition = null;
+        queuePosition = null; // Kontrol alındığında sıradan çık
         if (msg.timeLimit) controlTimeLimit = Math.floor(msg.timeLimit / 1000);
         updateQueueStatus();
       } else if(msg.queued){
+        // Kullanıcı sıraya girdi
         document.getElementById('btnControl').textContent='Kuyrukta';
         queuePosition = msg.queuePosition;
         estimatedWaitTime = msg.estimatedWaitTime;
@@ -297,7 +300,7 @@
       } else if(msg.expired){
         hasControl=false;
         document.getElementById('btnControl').textContent='Kontrolü Al';
-        alert('Kontrol süreniz doldu!');
+        queuePosition = null; // Kontrol süresi bittiğinde sıradan çık
         updateQueueStatus();
       }
     }
@@ -340,7 +343,7 @@
       const queueList = document.getElementById('queueList');
 
       // Show/hide panel based on whether there's any queue activity
-      const hasQueueActivity = queuePosition !== null || hasControl || timeRemaining !== null;
+      const hasQueueActivity = queuePosition !== null || hasControl || controllerUsername !== null;
       queueStatus.classList.toggle('hidden', !hasQueueActivity);
 
       if (!hasQueueActivity) return;
@@ -373,6 +376,8 @@
       let liveEstimatedWait = null;
       if (myQueueIndex !== -1) {
         // myQueueIndex: 0 means first in queue, 1 means second, etc.
+        // If current user is in queue, calculate estimated wait based on current controller's remaining time
+        // plus the time limit for each person ahead in the queue.
         liveEstimatedWait = (displayTime || 0) + controlTimeLimit * myQueueIndex;
       }
       if (queuePosition !== null) {
@@ -462,6 +467,20 @@
     canvas.addEventListener('contextmenu', e => {
       e.preventDefault(); // Tarayıcının varsayılan bağlam menüsünü engelle
     });
+
+    // Canvas'a tıklama olayı - Kullanıcının isteği üzerine eklendi
+    canvas.addEventListener('click', () => {
+      // Eğer kullanıcı kontrolü elinde değilse VE sırada değilse, sıraya girme isteği gönder.
+      // hasControl: true ise zaten kontrol onda, bir şey yapma.
+      // queuePosition !== null ise zaten sırada, bir şey yapma.
+      if (!hasControl && queuePosition === null) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({type:'control',action:'request'}));
+        }
+      }
+      // Diğer durumlarda (kontrol elindeyse veya sıradaysa) tıklama pasif kalır.
+    });
+
 
     // --- Klavye Haritalaması ve Olayları ---
 
