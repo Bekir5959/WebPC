@@ -135,7 +135,6 @@
   <!-- Toolbar -->
   <div id="toolbar">
     <button id="btnFullscreen" class="btn">Tam Ekran</button>
-    <button id="btnControl" class="btn">Kontrolü Al</button>
   </div>
 
   <div id="loginOverlay" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.8);z-index:1000;">
@@ -231,7 +230,8 @@
     let controlTimeLimit = 15; // default, will be updated from backend
 
     function connect(username){
-      ws = new WebSocket('ws://' + location.host + '/ws');
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
       ws.onopen = () => {
         ws.send(JSON.stringify({type:'login', username }));
@@ -297,7 +297,6 @@
       } else if(msg.expired){
         hasControl=false;
         document.getElementById('btnControl').textContent='Kontrolü Al';
-        alert('Kontrol süreniz doldu!');
         updateQueueStatus();
       }
     }
@@ -574,18 +573,13 @@
       }
     });
 
-    // Kontrol butonu
-    const btnControl=document.getElementById('btnControl');
-    btnControl.addEventListener('click',()=>{
-      if(!ws) return;
-      if(hasControl){
-        ws.send(JSON.stringify({type:'control',action:'release'}));
-        hasControl=false;
-        btnControl.textContent='Kontrolü Al';
-        updateQueueStatus();
-      }else{
+    // Kontrolü almak için canvas'a tıkla
+    canvas.addEventListener('click', (e) => {
+      if (!ws) return;
+      if (!hasControl) {
         ws.send(JSON.stringify({type:'control',action:'request'}));
       }
+      // (isteğe bağlı: hasControl ise bir şey yapma)
     });
   </script>
 </body>
