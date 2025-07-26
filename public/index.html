@@ -231,11 +231,7 @@
     let controlTimeLimit = 15; // default, will be updated from backend
 
     function connect(username){
-      // Dinamik olarak protokol seçimi: https:// ise wss://, http:// ise ws:// kullan
-      const baseUrl = location.host;
-      const wsProtocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-      const socketUrl = wsProtocol + baseUrl + '/ws';
-      ws = new WebSocket(socketUrl);
+      ws = new WebSocket('ws://' + location.host + '/ws');
 
       ws.onopen = () => {
         ws.send(JSON.stringify({type:'login', username }));
