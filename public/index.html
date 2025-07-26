@@ -153,6 +153,11 @@
     const ctx = canvas.getContext('2d', { alpha: false });
     canvas.focus(); // Klavye olaylarını yakalamak için canvas'a odaklan
 
+    // Canvas'a tıklandığında focus al
+    canvas.addEventListener('mousedown', () => {
+      canvas.focus();
+    });
+
     // Görüntü işleme için Web Worker
     // Bu worker, ana iş parçacığını engellemeden JPEG verilerini işler, bu da performansı artırır.
     const workerCode = `
@@ -431,13 +436,25 @@
     }
 
     let currentMouseButtonMask = 0; // Basılı olan fare tuşlarının bit maskesi
+    let lastMouseMoveTime = 0;
+    let mouseMoveThrottleDelay = 16; // ~60fps için throttling
+    let lastClickTime = 0;
+    let lastClickButton = -1;
+    let doubleClickDelay = 500; // 500ms içinde ikinci tıklama = çift tıklama
 
-    // Fare hareketi
-    canvas.addEventListener('mousemove', e => {
+    // Throttled mouse move handler
+    function throttledMouseMove(e) {
+      const now = performance.now();
+      if (now - lastMouseMoveTime < mouseMoveThrottleDelay) return;
+
+      lastMouseMoveTime = now;
       const { x, y } = getCanvasCoord(e);
       // Fare hareket ederken basılı olan tuşların maskesini gönder (sürükleme için önemli)
       sendInput('mouseMove', { x, y, buttonMask: currentMouseButtonMask });
-    });
+    }
+
+    // Fare hareketi (throttled)
+    canvas.addEventListener('mousemove', throttledMouseMove);
 
     // Fare tuşu basılı
     canvas.addEventListener('mousedown', e => {
@@ -457,6 +474,28 @@
       sendInput('mouseUp', { x, y, buttonMask: currentMouseButtonMask });
     });
 
+    // Çift tıklama desteği
+    canvas.addEventListener('dblclick', e => {
+      e.preventDefault();
+      const { x, y } = getCanvasCoord(e);
+
+      // Çift tıklama simülasyonu: hızlı mousedown -> mouseup -> mousedown -> mouseup
+      const buttonMask = (1 << e.button);
+
+      setTimeout(() => {
+        sendInput('mouseDown', { x, y, buttonMask: buttonMask });
+        setTimeout(() => {
+          sendInput('mouseUp', { x, y, buttonMask: 0 });
+          setTimeout(() => {
+            sendInput('mouseDown', { x, y, buttonMask: buttonMask });
+            setTimeout(() => {
+              sendInput('mouseUp', { x, y, buttonMask: 0 });
+            }, 50);
+          }, 50);
+        }, 50);
+      }, 10);
+    });
+
     // Sağ tıklama ile tarayıcı bağlam menüsünün açılmasını engelle
     canvas.addEventListener('contextmenu', e => {
       e.preventDefault(); // Tarayıcının varsayılan bağlam menüsünü engelle
@@ -464,90 +503,153 @@
 
     // --- Klavye Haritalaması ve Olayları ---
 
-    // X11 Keysym'lerinin string isimlerinden hexadecimal değerlerine haritalaması
-    // Bu harita, fiziksel tuşlar için standart X11 keysym'lerini içerir.
-    // VNC sunucusunun işletim sisteminde TRQ klavye düzeni ayarlıysa,
-    // bu keysym'ler doğru karakterleri üretecektir.
-    const PHYSICAL_KEY_KEYSYM_MAP = {
-        "Escape": 0xff1b,
-        "Digit1": 0x0031, "Digit2": 0x0032, "Digit3": 0x0033, "Digit4": 0x0034, "Digit5": 0x0035,
-        "Digit6": 0x0036, "Digit7": 0x0037, "Digit8": 0x0038, "Digit9": 0x0039, "Digit0": 0x0030,
-        "Minus": 0x002d, // -
-        "Equal": 0x003d, // =
-        "Backspace": 0xff08,
-        "Tab": 0xff09,
-        "KeyQ": 0x0071, // q
-        "KeyW": 0x0077, // w
-        "KeyE": 0x0065, // e
-        "KeyR": 0x0072, // r
-        "KeyT": 0x0074, // t
-        "KeyY": 0x0079, // y
-        "KeyU": 0x0075, // u
-        "KeyI": 0x0069, // i
-        "KeyO": 0x006f, // o
-        "KeyP": 0x0070, // p
-        "BracketLeft": 0x005b, // [
-        "BracketRight": 0x005d, // ]
-        "Enter": 0xff0d,
-        "ControlLeft": 0xffe3,
-        "KeyA": 0x0061, // a
-        "KeyS": 0x0073, // s
-        "KeyD": 0x0064, // d
-        "KeyF": 0x0066, // f
-        "KeyG": 0x0067, // g
-        "KeyH": 0x0068, // h
-        "KeyJ": 0x006a, // j
-        "KeyK": 0x006b, // k
-        "KeyL": 0x006c, // l
-        "Semicolon": 0x003b, // ;
-        "Quote": 0x0027, // '
-        "Backquote": 0x0060, // ` (key to the left of 1)
-        "ShiftLeft": 0xffe1,
-        "Backslash": 0x005c, // \
-        "KeyZ": 0x007a, // z
-        "KeyX": 0x0078, // x
-        "KeyC": 0x0063, // c
-        "KeyV": 0x0076, // v
-        "KeyB": 0x0062, // b
-        "KeyN": 0x006e, // n
-        "KeyM": 0x006d, // m
-        "Comma": 0x002c, // ,
-        "Period": 0x002e, // .
-        "Slash": 0x002f, // /
-        "ShiftRight": 0xffe2,
-        "AltLeft": 0xffe9,
-        "AltRight": 0xffea, // Genellikle AltGr tuşu olarak kullanılır
-        "Space": 0x0020, // Boşluk tuşu
-        "ControlRight": 0xffe4,
-
-        // Fonksiyon tuşları
-        "F1": 0xffbe, "F2": 0xffbf, "F3": 0xffc0, "F4": 0xffc1,
-        "F5": 0xffc2, "F6": 0xffc3, "F7": 0xffc4, "F8": 0xffc5,
-        "F9": 0xffc6, "F10": 0xffc7, "F11": 0xffc8, "F12": 0xffc9,
-
-        // Yön tuşları
-        "ArrowUp": 0xff52, "ArrowDown": 0xff54, "ArrowLeft": 0xff51, "ArrowRight": 0xff53,
-
-        // Diğer özel tuşlar
-        "Insert": 0xff63, "Delete": 0xffff,
-        "Home": 0xff50, "End": 0xff57,
-        "PageUp": 0xff55, "PageDown": 0xff56,
-        "NumLock": 0xff7f, "CapsLock": 0xffe5,
-        "ScrollLock": 0xff14, "Pause": 0xff13,
-        "PrintScreen": 0xff61,
+    // Türkçe Q klavye düzeni için gelişmiş keymap
+    // Modifier tuşları takip etmek için state
+    let modifierState = {
+      shift: false,
+      altgr: false,
+      ctrl: false,
+      alt: false
     };
+
+    // JavaScript event.code'dan evdev koduna mapping
+    const CODE_TO_EVDEV = {
+      "Escape": 1, "Digit1": 2, "Digit2": 3, "Digit3": 4, "Digit4": 5, "Digit5": 6,
+      "Digit6": 7, "Digit7": 8, "Digit8": 9, "Digit9": 10, "Digit0": 11,
+      "Minus": 12, "Equal": 13, "Backspace": 14, "Tab": 15,
+      "KeyQ": 16, "KeyW": 17, "KeyE": 18, "KeyR": 19, "KeyT": 20, "KeyY": 21,
+      "KeyU": 22, "KeyI": 23, "KeyO": 24, "KeyP": 25, "BracketLeft": 26, "BracketRight": 27,
+      "Enter": 28, "ControlLeft": 29, "KeyA": 30, "KeyS": 31, "KeyD": 32, "KeyF": 33,
+      "KeyG": 34, "KeyH": 35, "KeyJ": 36, "KeyK": 37, "KeyL": 38, "Semicolon": 39,
+      "Quote": 40, "Backquote": 41, "ShiftLeft": 42, "Backslash": 43,
+      "KeyZ": 44, "KeyX": 45, "KeyC": 46, "KeyV": 47, "KeyB": 48, "KeyN": 49,
+      "KeyM": 50, "Comma": 51, "Period": 52, "Slash": 53, "ShiftRight": 54,
+      "NumpadMultiply": 55, "AltLeft": 56, "Space": 57, "CapsLock": 58,
+      "F1": 59, "F2": 60, "F3": 61, "F4": 62, "F5": 63, "F6": 64, "F7": 65, "F8": 66,
+      "F9": 67, "F10": 68, "NumLock": 69, "ScrollLock": 70,
+      "AltRight": 100, "ControlRight": 97
+    };
+
+    // Türkçe Q klavye düzeni (keymap-trq.json'dan alınmış)
+    const TRQ_KEYMAP = {
+      1: {base: 0xff1b}, // Escape
+      2: {base: 0x0031, shift: 0x0021, altgr: 0x003e}, // 1 ! >
+      3: {base: 0x0032, shift: 0x0027, altgr: 0x00a3}, // 2 ' £
+      4: {base: 0x0033, shift: 0x005e, altgr: 0x0023}, // 3 ^ #
+      5: {base: 0x0034, shift: 0x002b, altgr: 0x0024}, // 4 + $
+      6: {base: 0x0035, shift: 0x0025, altgr: 0x00bd}, // 5 % ½
+      7: {base: 0x0036, shift: 0x0026, altgr: 0x00be}, // 6 & ¾
+      8: {base: 0x0037, shift: 0x002f, altgr: 0x007b}, // 7 / {
+      9: {base: 0x0038, shift: 0x0028, altgr: 0x005b}, // 8 ( [
+      10: {base: 0x0039, shift: 0x0029, altgr: 0x005d}, // 9 ) ]
+      11: {base: 0x0030, shift: 0x003d, altgr: 0x007d}, // 0 = }
+      12: {base: 0x002a, shift: 0x003f, altgr: 0x005c}, // * ? \
+      13: {base: 0x002d, shift: 0x005f, altgr: 0x007c}, // - _ |
+      14: {base: 0xff08}, // Backspace
+      15: {base: 0xff09}, // Tab
+      16: {base: 0x0071, shift: 0x0051, altgr: 0x0040}, // q Q @
+      17: {base: 0x0077, shift: 0x0057}, // w W
+      18: {base: 0x0065, shift: 0x0045, altgr: 0x20ac}, // e E €
+      19: {base: 0x0072, shift: 0x0052, altgr: 0x00b6}, // r R ¶
+      20: {base: 0x0074, shift: 0x0054, altgr: 0x20ba}, // t T ₺
+      21: {base: 0x0079, shift: 0x0059, altgr: 0x2190}, // y Y ←
+      22: {base: 0x0075, shift: 0x0055, altgr: 0x00fb}, // u U û
+      23: {base: 0x0131, shift: 0x0049, altgr: 0x00ee}, // ı I î
+      24: {base: 0x006f, shift: 0x004f, altgr: 0x00f4}, // o O ô
+      25: {base: 0x0070, shift: 0x0050}, // p P
+      26: {base: 0x011f, shift: 0x011e, altgr: 0x00a8}, // ğ Ğ ¨
+      27: {base: 0x00fc, shift: 0x00dc, altgr: 0x007e}, // ü Ü ~
+      28: {base: 0xff0d}, // Enter
+      29: {base: 0xffe3}, // Control_L
+      30: {base: 0x0061, shift: 0x0041, altgr: 0x00e2}, // a A â
+      31: {base: 0x0073, shift: 0x0053, altgr: 0x00a7}, // s S §
+      32: {base: 0x0064, shift: 0x0044}, // d D
+      33: {base: 0x0066, shift: 0x0046, altgr: 0x00aa}, // f F ª
+      34: {base: 0x0067, shift: 0x0047}, // g G
+      35: {base: 0x0068, shift: 0x0048}, // h H
+      36: {base: 0x006a, shift: 0x004a}, // j J
+      37: {base: 0x006b, shift: 0x004b}, // k K
+      38: {base: 0x006c, shift: 0x004c}, // l L
+      39: {base: 0x015f, shift: 0x015e, altgr: 0x00b4}, // ş Ş ´
+      40: {base: 0x0069, shift: 0x0130, altgr: 0x0027}, // i İ '
+      41: {base: 0x0022, shift: 0x00e9, altgr: 0x003c}, // " é <
+      42: {base: 0xffe1}, // Shift_L
+      43: {base: 0x002c, shift: 0x003b, altgr: 0x0060}, // , ; `
+      44: {base: 0x007a, shift: 0x005a, altgr: 0x00ab}, // z Z «
+      45: {base: 0x0078, shift: 0x0058, altgr: 0x00bb}, // x X »
+      46: {base: 0x0063, shift: 0x0043, altgr: 0x00a2}, // c C ¢
+      47: {base: 0x0076, shift: 0x0056, altgr: 0x201c}, // v V "
+      48: {base: 0x0062, shift: 0x0042, altgr: 0x201d}, // b B "
+      49: {base: 0x006e, shift: 0x004e}, // n N
+      50: {base: 0x006d, shift: 0x004d, altgr: 0x00b5}, // m M µ
+      51: {base: 0x00f6, shift: 0x00d6, altgr: 0x00d7}, // ö Ö ×
+      52: {base: 0x00e7, shift: 0x00c7, altgr: 0x00b7}, // ç Ç ·
+      53: {base: 0x002e, shift: 0x003a}, // . :
+      54: {base: 0xffe2}, // Shift_R
+      55: {base: 0xffaa}, // NumpadMultiply
+      56: {base: 0xffe9}, // Alt_L
+      57: {base: 0x0020}, // Space
+      58: {base: 0xffe5}, // CapsLock
+      59: {base: 0xffbe}, // F1
+      60: {base: 0xffbf}, // F2
+      61: {base: 0xffc0}, // F3
+      62: {base: 0xffc1}, // F4
+      63: {base: 0xffc2}, // F5
+      64: {base: 0xffc3}, // F6
+      65: {base: 0xffc4}, // F7
+      66: {base: 0xffc5}, // F8
+      67: {base: 0xffc6}, // F9
+      68: {base: 0xffc7}, // F10
+      69: {base: 0xff7f}, // NumLock
+      70: {base: 0xff14}, // ScrollLock
+      97: {base: 0xffe4}, // Control_R
+      100: {base: 0xffea} // Alt_R (AltGr)
+    };
+
+    // Keysym hesaplama fonksiyonu
+    function getKeysym(evdevCode) {
+      const keyDef = TRQ_KEYMAP[evdevCode];
+      if (!keyDef) return null;
+
+      // Modifier kombinasyonlarına göre keysym seç
+      if (modifierState.shift && modifierState.altgr && keyDef.shift_altgr) {
+        return keyDef.shift_altgr;
+      } else if (modifierState.altgr && keyDef.altgr) {
+        return keyDef.altgr;
+      } else if (modifierState.shift && keyDef.shift) {
+        return keyDef.shift;
+      } else {
+        return keyDef.base;
+      }
+    }
 
     // Klavye tuşuna basıldığında
     canvas.addEventListener('keydown', e => {
       e.preventDefault(); // Tarayıcının varsayılan davranışını engelle (kısayollar için önemli)
 
-      const keysym = PHYSICAL_KEY_KEYSYM_MAP[e.code];
+      const evdevCode = CODE_TO_EVDEV[e.code];
+      if (!evdevCode) {
+        console.warn(`Bilinmeyen tuş kodu: ${e.code}`);
+        return;
+      }
 
-      if (keysym !== undefined) {
+      // Modifier tuşları güncelle
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        modifierState.shift = true;
+      } else if (e.code === 'AltRight') { // AltGr
+        modifierState.altgr = true;
+      } else if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+        modifierState.ctrl = true;
+      } else if (e.code === 'AltLeft') {
+        modifierState.alt = true;
+      }
+
+      const keysym = getKeysym(evdevCode);
+      if (keysym !== null) {
         // Tuşun basılı olduğunu sunucuya bildir
         sendInput('keyEvent', { keysym: keysym, down: true });
       } else {
-        console.warn(`Bilinmeyen tuş kodu veya keysym bulunamadı: ${e.code}`);
+        console.warn(`Keysym bulunamadı: ${e.code} (evdev: ${evdevCode})`);
       }
     });
 
@@ -555,13 +657,29 @@
     canvas.addEventListener('keyup', e => {
       e.preventDefault(); // Tarayıcının varsayılan davranışını engelle
 
-      const keysym = PHYSICAL_KEY_KEYSYM_MAP[e.code];
+      const evdevCode = CODE_TO_EVDEV[e.code];
+      if (!evdevCode) {
+        console.warn(`Bilinmeyen tuş kodu (keyup): ${e.code}`);
+        return;
+      }
 
-      if (keysym !== undefined) {
+      // Modifier tuşları güncelle
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        modifierState.shift = false;
+      } else if (e.code === 'AltRight') { // AltGr
+        modifierState.altgr = false;
+      } else if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+        modifierState.ctrl = false;
+      } else if (e.code === 'AltLeft') {
+        modifierState.alt = false;
+      }
+
+      const keysym = getKeysym(evdevCode);
+      if (keysym !== null) {
         // Tuşun bırakıldığını sunucuya bildir
         sendInput('keyEvent', { keysym: keysym, down: false });
       } else {
-        console.warn(`Bilinmeyen tuş kodu veya keysym bulunamadı (keyup): ${e.code}`);
+        console.warn(`Keysym bulunamadı (keyup): ${e.code} (evdev: ${evdevCode})`);
       }
     });
 
@@ -573,13 +691,24 @@
       }
     });
 
-    // Kontrolü almak için canvas'a tıkla
+    // Kontrolü almak için canvas'a tıkla (çift tıklama ile çakışmayı önlemek için delay)
+    let clickTimeout = null;
     canvas.addEventListener('click', (e) => {
       if (!ws) return;
-      if (!hasControl) {
-        ws.send(JSON.stringify({type:'control',action:'request'}));
+
+      // Çift tıklama durumunda click event'ini iptal et
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+        return;
       }
-      // (isteğe bağlı: hasControl ise bir şey yapma)
+
+      clickTimeout = setTimeout(() => {
+        if (!hasControl) {
+          ws.send(JSON.stringify({type:'control',action:'request'}));
+        }
+        clickTimeout = null;
+      }, 250); // 250ms bekle, çift tıklama gelirse iptal et
     });
   </script>
 </body>
