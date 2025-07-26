@@ -1,0 +1,190 @@
+/* Modern Terminal-Inspired Theme */
+:root {
+  --bg-main: #0a0a0a;
+  --bg-gradient: radial-gradient(circle at center, #000 0%, #030303 60%, #0a0a0a 100%);
+  --green: #00ff00;
+  --green-soft: #0f0;
+  --green-shadow: rgba(0, 255, 0, 0.5);
+  --panel-bg: rgba(0,0,0,0.7);
+  --panel-border: #0f0;
+  --text-main: #0f0;
+  --text-error: #f66;
+  --font-main: 'Inter', 'Segoe UI', Arial, sans-serif;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-gradient);
+  font-family: var(--font-main);
+  color: var(--text-main);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#app-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+canvas#screen {
+  max-width: 100vw;
+  max-height: 100vh;
+  object-fit: contain;
+  image-rendering: pixelated;
+  cursor: crosshair;
+  outline: none;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px var(--green-shadow);
+  background: #111;
+  transition: box-shadow 0.2s;
+}
+canvas#screen:focus {
+  box-shadow: 0 0 0 3px var(--green);
+}
+
+#hud {
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  background: var(--panel-bg);
+  color: var(--green);
+  padding: 10px 18px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 2px 8px var(--green-shadow);
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
+  letter-spacing: 1px;
+}
+
+#toolbar {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  display: flex;
+  gap: 14px;
+  z-index: 10;
+}
+
+.btn {
+  background: var(--panel-bg);
+  color: var(--green);
+  border: 1.5px solid var(--panel-border);
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  box-shadow: 0 2px 8px var(--green-shadow);
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+.btn:hover {
+  background: rgba(0,255,0,0.08);
+  color: #fff;
+  box-shadow: 0 4px 16px var(--green-shadow);
+}
+.btn:active {
+  background: rgba(0,255,0,0.18);
+  color: var(--green);
+}
+
+#loginOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.85);
+  z-index: 1000;
+  animation: fadeIn 0.5s;
+}
+
+#loginForm {
+  background: #111;
+  padding: 32px 40px;
+  border: 2px solid var(--panel-border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-family: var(--font-main);
+  min-width: 280px;
+  box-shadow: 0 4px 24px var(--green-shadow);
+  animation: popIn 0.4s;
+}
+#loginForm h2 {
+  color: var(--green);
+  margin: 0 0 8px 0;
+  font-weight: 700;
+  font-size: 22px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+#loginForm input[type="text"] {
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1.5px solid var(--panel-border);
+  background: #000;
+  color: var(--green);
+  font-size: 16px;
+  outline: none;
+  transition: border 0.2s;
+}
+#loginForm input[type="text"]:focus {
+  border: 1.5px solid var(--green);
+}
+#loginForm .btn {
+  align-self: center;
+  width: 120px;
+}
+#loginError {
+  color: var(--text-error);
+  font-size: 13px;
+  display: none;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  #hud {
+    top: 8px;
+    left: 8px;
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+  #toolbar {
+    bottom: 10px;
+    right: 10px;
+    gap: 6px;
+  }
+  .btn {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+  #loginForm {
+    padding: 18px 10px;
+    min-width: 180px;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes popIn {
+  0% { transform: scale(0.9); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+} 

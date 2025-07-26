@@ -64,6 +64,58 @@
     }
     .btn:hover { background: rgba(0,255,0,0.1); }
     .btn:active { background: rgba(0,255,0,0.2); }
+
+    /* Queue status panel */
+    #queueStatus {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: rgba(0,0,0,0.8);
+      color: #0f0;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      min-width: 200px;
+      border: 1px solid #0f0;
+    }
+
+    #queueStatus.hidden {
+      display: none;
+    }
+
+    .queue-item {
+      margin: 4px 0;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(0,255,0,0.2);
+    }
+
+    .queue-item:last-child {
+      border-bottom: none;
+    }
+
+    .time-remaining {
+      color: #ff6b6b;
+      font-weight: 600;
+    }
+
+    .queue-position {
+      color: #4ecdc4;
+      font-weight: 600;
+    }
+
+    .current-controller {
+      background: rgba(0,255,0,0.1);
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+
+    .estimated-wait {
+      color: #feca57;
+      font-size: 11px;
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
@@ -71,6 +123,14 @@
 
   <!-- Heads-Up Display -->
   <div id="hud">FPS: <span id="fps">0</span></div>
+
+  <!-- Queue Status Panel -->
+  <div id="queueStatus" class="hidden">
+    <div id="currentControllerInfo"></div>
+    <div id="queueInfo"></div>
+    <div id="userQueueInfo"></div>
+    <div id="queueList"></div>
+  </div>
 
   <!-- Toolbar -->
   <div id="toolbar">
@@ -159,6 +219,16 @@
     renderLoop(); // Render döngüsünü başlat
 
     let ws=null, peer=null, currentUsername=''; // bağlantılar
+    let hasControl = false;
+    let queuePosition = null;
+    let timeRemaining = null;
+    let estimatedWaitTime = null;
+    let controllerUsername = null;
+    let queueUsernames = [];
+    let queueLength = 0;
+    let countdownTimer = null;
+    let lastTimeUpdate = null;
+    let controlTimeLimit = 15; // default, will be updated from backend
 
     function connect(username){
       ws = new WebSocket('ws://' + location.host + '/ws');
@@ -173,6 +243,7 @@
           if(msg.ok){
             document.getElementById('loginOverlay').style.display='none';
             startPeer();
+            updateQueueStatus();
           }else{
             document.getElementById('loginError').style.display='block';
             ws.close();
@@ -185,7 +256,12 @@
         if(msg.type==='control'){
           handleControlMessage(msg);
         }
-        // controller mesajları artık kullanıcıya gösterilmiyor
+        if(msg.type==='controller'){
+          handleControllerMessage(msg);
+        }
+        if(msg.type==='queueUpdate'){
+          handleQueueUpdate(msg);
+        }
       };
 
       ws.onerror=console.error;
@@ -206,70 +282,140 @@
       worker.postMessage({x,y,jpegData},[jpegData.buffer]);
     }
 
+    function handleControlMessage(msg){
+      if(msg.granted){
+        hasControl=true;
+        document.getElementById('btnControl').textContent='Kontrolü Bırak';
+        queuePosition = null;
+        if (msg.timeLimit) controlTimeLimit = Math.floor(msg.timeLimit / 1000);
+        updateQueueStatus();
+      } else if(msg.queued){
+        document.getElementById('btnControl').textContent='Kuyrukta';
+        queuePosition = msg.queuePosition;
+        estimatedWaitTime = msg.estimatedWaitTime;
+        updateQueueStatus();
+      } else if(msg.expired){
+        hasControl=false;
+        document.getElementById('btnControl').textContent='Kontrolü Al';
+        alert('Kontrol süreniz doldu!');
+        updateQueueStatus();
+      }
+    }
+
+    function handleControllerMessage(msg){
+      controllerUsername = msg.username;
+      timeRemaining = msg.timeRemaining;
+      queueUsernames = msg.queue || [];
+      queueLength = msg.queueLength || (queueUsernames ? queueUsernames.length : 0);
+      lastTimeUpdate = Date.now();
+      if (msg.timeLimit) controlTimeLimit = Math.floor(msg.timeLimit / 1000);
+      startCountdown();
+      updateQueueStatus();
+    }
+
+    function handleQueueUpdate(msg){
+      queuePosition = msg.queuePosition;
+      estimatedWaitTime = msg.estimatedWaitTime;
+      queueUsernames = msg.queue || [];
+      queueLength = msg.queueLength || (queueUsernames ? queueUsernames.length : 0);
+      updateQueueStatus();
+    }
+
+    function startCountdown() {
+      if (countdownTimer) clearInterval(countdownTimer);
+      countdownTimer = setInterval(() => {
+        if (typeof timeRemaining === 'number' && timeRemaining > 0 && lastTimeUpdate) {
+          const elapsed = Math.floor((Date.now() - lastTimeUpdate) / 1000);
+          const displayTime = Math.max(0, timeRemaining - elapsed);
+          updateQueueStatus(displayTime);
+        }
+      }, 1000);
+    }
+
+    function updateQueueStatus(liveTime){
+      const queueStatus = document.getElementById('queueStatus');
+      const currentControllerInfo = document.getElementById('currentControllerInfo');
+      const queueInfo = document.getElementById('queueInfo');
+      const userQueueInfo = document.getElementById('userQueueInfo');
+      const queueList = document.getElementById('queueList');
+
+      // Show/hide panel based on whether there's any queue activity
+      const hasQueueActivity = queuePosition !== null || hasControl || timeRemaining !== null;
+      queueStatus.classList.toggle('hidden', !hasQueueActivity);
+
+      if (!hasQueueActivity) return;
+
+      // Current controller info
+      let displayTime = typeof liveTime === 'number' ? liveTime : timeRemaining;
+      if (hasControl) {
+        currentControllerInfo.innerHTML = `
+          <div class="current-controller">
+            <strong>🎮 Siz kontrol ediyorsunuz</strong><br>
+            <span class="time-remaining">Kalan süre: ${displayTime || controlTimeLimit} saniye</span>
+          </div>
+        `;
+      } else if (controllerUsername) {
+        currentControllerInfo.innerHTML = `
+          <div class="current-controller">
+            <strong>🎮 ${controllerUsername === currentUsername ? 'Siz' : controllerUsername} kontrol ediyor</strong><br>
+            <span class="time-remaining">Kalan süre: ${displayTime || controlTimeLimit} saniye</span>
+          </div>
+        `;
+      } else {
+        currentControllerInfo.innerHTML = '';
+      }
+
+      // User's queue position and live estimated wait time
+      let myQueueIndex = -1;
+      if (queueUsernames && currentUsername) {
+        myQueueIndex = queueUsernames.findIndex(u => u === currentUsername);
+      }
+      let liveEstimatedWait = null;
+      if (myQueueIndex !== -1) {
+        // myQueueIndex: 0 means first in queue, 1 means second, etc.
+        liveEstimatedWait = (displayTime || 0) + controlTimeLimit * myQueueIndex;
+      }
+      if (queuePosition !== null) {
+        userQueueInfo.innerHTML = `
+          <div class="queue-item">
+            <strong>📋 Kuyruk Pozisyonunuz: ${queuePosition}</strong><br>
+            <span class="estimated-wait">Tahmini bekleme süresi: ${liveEstimatedWait !== null ? liveEstimatedWait : estimatedWaitTime} saniye</span>
+          </div>
+        `;
+      } else {
+        userQueueInfo.innerHTML = '';
+      }
+
+      // General queue info
+      if (queueLength > 0) {
+        queueInfo.innerHTML = `
+          <div class="queue-item">
+            <strong>👥 Toplam kuyruk: ${queueLength} kişi</strong>
+          </div>
+        `;
+      } else {
+        queueInfo.innerHTML = '';
+      }
+
+      // Show full queue list
+      if (queueUsernames && queueUsernames.length > 0) {
+        queueList.innerHTML = `<div class="queue-item"><strong>Kuyruktakiler:</strong><br>${queueUsernames.map((u, i) => `<span>${i + 1}. ${u}</span>`).join('<br>')}</div>`;
+      } else {
+        queueList.innerHTML = '';
+      }
+    }
+
     document.getElementById('loginForm').addEventListener('submit',e=>{
       e.preventDefault();
       const uname=document.getElementById('txtUsername').value.trim();
       if(uname){currentUsername=uname;connect(uname);}
     });
 
-    // WebSocket bağlantısı
-    // ws.onopen = () => {
-    //   console.log("WS bağlantısı kuruldu.");
-    //   // WebRTC peer'ı başlat (başlatıcı olarak)
-    //   peer = new SimplePeer({ initiator: true, trickle: true });
-
-    //   // Peer'dan gelen sinyalleri WebSocket üzerinden sunucuya gönder
-    //   peer.on('signal', data => {
-    //     if (ws.readyState === WebSocket.OPEN) {
-    //       ws.send(JSON.stringify({ type: 'signal', data }));
-    //     }
-    //   });
-
-    //   // Peer bağlantısı kurulduğunda
-    //   peer.on('connect', () => {
-    //     console.log("✅ WebRTC peer bağlandı.");
-    //   });
-
-    //   // Peer'dan gelen veri (görüntü)
-    //   peer.on('data', data => {
-    //     // Gelen veriden X ve Y koordinatlarını oku (ilk 8 byte)
-    //     const view = new DataView(data.buffer);
-    //     const x = view.getUint32(0);
-    //     const y = view.getUint32(4);
-    //     const jpegData = data.slice(8); // Geri kalan JPEG verisi
-
-    //     // JPEG verisini worker'a gönder (transferable olarak)
-    //     worker.postMessage({ x, y, jpegData }, [jpegData.buffer]);
-    //   });
-
-    //   peer.on('error', err => console.error("WebRTC hatası:", err));
-    //   peer.on('close', () => {
-    //     console.log("WebRTC bağlantısı kapandı.");
-    //     isFirstFrame = true;
-    //     frameQueue.length = 0; // Kare kuyruğunu temizle
-    //   });
-    // };
-
-    // WebSocket'tan gelen mesajları işle
-    // ws.onmessage = e => {
-    //   const signalData = JSON.parse(e.data);
-    //   // Gelen sinyal bir WebRTC sinyali ise peer'a ilet
-    //   if (signalData.type === 'signal' && peer && !peer.destroyed) {
-    //     peer.signal(signalData.data);
-    //   }
-    // };
-
-    // ws.onerror = e => console.error("WS hatası:", e);
-    // ws.onclose = () => {
-    //   console.log("WS bağlantısı kapandı.");
-    //   if (peer && !peer.destroyed) peer.destroy(); // Peer'ı yok et
-    // };
-
     // --- Mouse & Klavye Girişini Gönderme ---
 
     // Sunucuya giriş olaylarını gönderen yardımcı fonksiyon
     function sendInput(type, payload) {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN && hasControl) {
         ws.send(JSON.stringify({ type: 'input', inputType: type, payload }));
       }
     }
@@ -430,27 +576,17 @@
 
     // Kontrol butonu
     const btnControl=document.getElementById('btnControl');
-    let hasControl=false;
     btnControl.addEventListener('click',()=>{
       if(!ws) return;
       if(hasControl){
         ws.send(JSON.stringify({type:'control',action:'release'}));
         hasControl=false;
         btnControl.textContent='Kontrolü Al';
+        updateQueueStatus();
       }else{
         ws.send(JSON.stringify({type:'control',action:'request'}));
       }
     });
-
-    function handleControlMessage(msg){
-      if(msg.granted){
-        hasControl=true;
-        btnControl.textContent='Kontrolü Bırak';
-        // HUD güncellemesine gerek yok
-      } else if(msg.queued){
-        btnControl.textContent='Kuyrukta';
-      }
-    }
   </script>
 </body>
 </html>

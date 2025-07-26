@@ -12,4 +12,7 @@ module.exports = {
   MAX_JPEG_QUALITY: 60,
   JPEG_QUALITY: Math.min(parseInt(process.env.JPEG_QUALITY || '40', 10), 60),
   TARGET_FPS: parseInt(process.env.TARGET_FPS || '30', 10),
+
+  // Control system
+  CONTROL_TIME_LIMIT: parseInt(process.env.CONTROL_TIME_LIMIT || '15', 10) * 1000, // Convert to milliseconds
 }; 
