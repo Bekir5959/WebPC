@@ -246,18 +246,19 @@ class PeerManager extends EventEmitter {
     if (next) {
       const wsNext = [...this.wss.clients].find(c => c.clientId === next.clientId);
       if (wsNext && wsNext.readyState === wsNext.OPEN) {
-        wsNext.send(JSON.stringify({ 
-          type: 'control', 
-          granted: true, 
-          timeLimit: this.controlTimeLimit 
+        wsNext.send(JSON.stringify({
+          type: 'control',
+          granted: true,
+          timeLimit: this.controlTimeLimit
         }));
         console.log(`Control granted to ${next.username}`);
       }
-      this.lastExpiredController = null; // Clear this if a new controller is granted
+      this.lastExpiredController = null; // A new controller from the queue takes over, so clear flag
     } else {
-      // If queue is empty, lastExpiredController should remain set if it was set by _forceControlTransfer
-      // This ensures the expired user can't immediately re-take control. It will be cleared once someone else requests it
-      // or the next controller successfully takes over.
+      // Queue is empty. If control was released/expired, the lastExpiredController is set.
+      // Now that no one else is in queue, clear it so the previous controller can immediately
+      // re-request and get control without being stuck in a "queue for myself" state.
+      this.lastExpiredController = null; 
     }
     
     this._broadcastController();
