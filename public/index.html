@@ -554,11 +554,11 @@
       20: {base: 0x0074, shift: 0x0054, altgr: 0x20ba}, // t T ₺
       21: {base: 0x0079, shift: 0x0059, altgr: 0x2190}, // y Y ←
       22: {base: 0x0075, shift: 0x0055, altgr: 0x00fb}, // u U û
-      23: {base: 0x0131, shift: 0x0049, altgr: 0x00ee}, // ı I î
-      24: {base: 0x006f, shift: 0x004f, altgr: 0x00f4}, // o O ô
+      23: {base: 0x01000131, shift: 0x0049, altgr: 0x010000ee}, // ı I î (Unicode keysym)
+      24: {base: 0x006f, shift: 0x004f, altgr: 0x010000f4}, // o O ô
       25: {base: 0x0070, shift: 0x0050}, // p P
-      26: {base: 0x011f, shift: 0x011e, altgr: 0x00a8}, // ğ Ğ ¨
-      27: {base: 0x00fc, shift: 0x00dc, altgr: 0x007e}, // ü Ü ~
+      26: {base: 0x0100011f, shift: 0x0100011e, altgr: 0x00a8}, // ğ Ğ ¨ (Unicode keysym)
+      27: {base: 0x010000fc, shift: 0x010000dc, altgr: 0x007e}, // ü Ü ~ (Unicode keysym)
       28: {base: 0xff0d}, // Enter
       29: {base: 0xffe3}, // Control_L
       30: {base: 0x0061, shift: 0x0041, altgr: 0x00e2}, // a A â
@@ -570,8 +570,8 @@
       36: {base: 0x006a, shift: 0x004a}, // j J
       37: {base: 0x006b, shift: 0x004b}, // k K
       38: {base: 0x006c, shift: 0x004c}, // l L
-      39: {base: 0x015f, shift: 0x015e, altgr: 0x00b4}, // ş Ş ´
-      40: {base: 0x0069, shift: 0x0130, altgr: 0x0027}, // i İ '
+      39: {base: 0x0100015f, shift: 0x0100015e, altgr: 0x00b4}, // ş Ş ´ (Unicode keysym)
+      40: {base: 0x0069, shift: 0x01000130, altgr: 0x0027}, // i İ ' (Unicode keysym)
       41: {base: 0x0022, shift: 0x00e9, altgr: 0x003c}, // " é <
       42: {base: 0xffe1}, // Shift_L
       43: {base: 0x002c, shift: 0x003b, altgr: 0x0060}, // , ; `
@@ -582,8 +582,8 @@
       48: {base: 0x0062, shift: 0x0042, altgr: 0x201d}, // b B "
       49: {base: 0x006e, shift: 0x004e}, // n N
       50: {base: 0x006d, shift: 0x004d, altgr: 0x00b5}, // m M µ
-      51: {base: 0x00f6, shift: 0x00d6, altgr: 0x00d7}, // ö Ö ×
-      52: {base: 0x00e7, shift: 0x00c7, altgr: 0x00b7}, // ç Ç ·
+      51: {base: 0x010000f6, shift: 0x010000d6, altgr: 0x00d7}, // ö Ö × (Unicode keysym)
+      52: {base: 0x010000e7, shift: 0x010000c7, altgr: 0x00b7}, // ç Ç · (Unicode keysym)
       53: {base: 0x002e, shift: 0x003a}, // . :
       54: {base: 0xffe2}, // Shift_R
       55: {base: 0xffaa}, // NumpadMultiply
@@ -646,6 +646,8 @@
 
       const keysym = getKeysym(evdevCode);
       if (keysym !== null) {
+        // Debug: hangi keysym gönderildiğini göster
+        console.log(`Key down: ${e.code} -> evdev:${evdevCode} -> keysym:0x${keysym.toString(16)} (${String.fromCharCode(keysym & 0xFFFF)})`);
         // Tuşun basılı olduğunu sunucuya bildir
         sendInput('keyEvent', { keysym: keysym, down: true });
       } else {
