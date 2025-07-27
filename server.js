@@ -16,12 +16,12 @@ app.use(helmet());
 app.use(rateLimit({ windowMs: 10*1000, max: 100 }));
 const server = http.createServer(app);
 
-// --- WebSocket for signaling ---
-const wss = new WebSocketServer({ server, path: '/ws' });
-const peers = new PeerManager(wss);
-
 // --- VNC client ---
 const vnc = new VncClient();
+
+// --- WebSocket for signaling ---
+const wss = new WebSocketServer({ server, path: '/ws' });
+const peers = new PeerManager(wss, vnc);
 
 // --- Frame processor pool ---
 const processor = new FramePool();

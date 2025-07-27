@@ -10,6 +10,10 @@ class VncClient extends EventEmitter {
     this.frameBuf = null;
     this.width = 0;
     this.height = 0;
+    
+    // Basılı tuş ve fare durumlarını takip etmek için
+    this.pressedKeys = new Set();
+    this.pressedMouseButtons = 0;
 
     this.rfb = RfbClient.createConnection({
       host: VNC_HOST,
@@ -33,22 +37,20 @@ class VncClient extends EventEmitter {
       if (rect.encoding !== RfbClient.encodings.raw) return;
       const { x, y, width: w, height: h, data } = rect;
 
-      // Safe per-byte BGR -> RGB copy (slower but correct)
       for (let row = 0; row < h; row++) {
         const srcOffset = row * w * 4;
         const dstOffset = ((y + row) * this.width + x) * 4;
         for (let col = 0; col < w; col++) {
           const src = srcOffset + col * 4;
           const dst = dstOffset + col * 4;
-          this.frameBuf[dst] = data[src + 2];     // R
-          this.frameBuf[dst + 1] = data[src + 1]; // G
-          this.frameBuf[dst + 2] = data[src];     // B
-          this.frameBuf[dst + 3] = 255;          // A
+          this.frameBuf[dst] = data[src + 2];
+          this.frameBuf[dst + 1] = data[src + 1];
+          this.frameBuf[dst + 2] = data[src];
+          this.frameBuf[dst + 3] = 255;
         }
       }
 
       this.dirtyRects.push({ x, y, w, h });
-      // update global bounds
       this.bounds.x = Math.min(this.bounds.x, x);
       this.bounds.y = Math.min(this.bounds.y, y);
       this.bounds.maxX = Math.max(this.bounds.maxX, x + w);
@@ -64,7 +66,6 @@ class VncClient extends EventEmitter {
 
   requestFullFrame() {
     this.dirtyRects.push({ x: 0, y: 0, w: this.width, h: this.height });
-    // Tüm ekranı kirli olarak işaretlerken sınır kutusunu da güncelle
     this.bounds = { x: 0, y: 0, maxX: this.width, maxY: this.height };
   }
 
@@ -76,7 +77,6 @@ class VncClient extends EventEmitter {
       width: this.bounds.maxX - this.bounds.x,
       height: this.bounds.maxY - this.bounds.y,
     };
-    // reset trackers
     this.dirtyRects = [];
     this.bounds = { x: Infinity, y: Infinity, maxX: 0, maxY: 0 };
     return rect;
@@ -85,15 +85,43 @@ class VncClient extends EventEmitter {
   handleInput(type, payload) {
     switch (type) {
       case 'mouseMove':
+        // Sadece hareket varsa, durumu güncellemeden direkt gönder
+        this.rfb.pointerEvent(payload.x, payload.y, payload.buttonMask);
+        break;
       case 'mouseDown':
+        this.pressedMouseButtons |= payload.buttonMask;
+        this.rfb.pointerEvent(payload.x, payload.y, payload.buttonMask);
+        break;
       case 'mouseUp':
+        this.pressedMouseButtons &= ~payload.buttonMask;
         this.rfb.pointerEvent(payload.x, payload.y, payload.buttonMask);
         break;
       case 'keyEvent':
+        // Klavye durumunu güncelle
+        if (payload.down) {
+          this.pressedKeys.add(payload.keysym);
+        } else {
+          this.pressedKeys.delete(payload.keysym);
+        }
         this.rfb.keyEvent(payload.keysym, payload.down);
         break;
       default:
         console.warn('Unknown input type:', type);
+    }
+  }
+
+  // Tüm basılı tuş ve fare düğmelerini sıfırla
+  resetInputState() {
+    // Basılı tüm tuşları bırak
+    this.pressedKeys.forEach(keysym => {
+      this.rfb.keyEvent(keysym, false);
+    });
+    this.pressedKeys.clear();
+    
+    // Fare düğmelerini sıfırla
+    if (this.pressedMouseButtons !== 0) {
+      this.rfb.pointerEvent(0, 0, 0);
+      this.pressedMouseButtons = 0;
     }
   }
 }

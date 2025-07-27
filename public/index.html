@@ -288,6 +288,9 @@
         document.getElementById('btnControl').textContent='Kontrolü Bırak';
         queuePosition = null;
         if (msg.timeLimit) controlTimeLimit = Math.floor(msg.timeLimit / 1000);
+        
+        // İstemci tarafı fare durumunu sıfırla
+        currentMouseButtonMask = 0;
         updateQueueStatus();
       } else if(msg.queued){
         document.getElementById('btnControl').textContent='Kuyrukta';
@@ -297,6 +300,9 @@
       } else if(msg.expired){
         hasControl=false;
         document.getElementById('btnControl').textContent='Kontrolü Al';
+        
+        // Uyarıyı kaldır ve fare durumunu sıfırla
+        currentMouseButtonMask = 0;
         updateQueueStatus();
       }
     }
@@ -430,7 +436,7 @@
       return { x, y };
     }
 
-    let currentMouseButtonMask = 0; // Basılı olan fare tuşlarının bit maskesi
+    let currentMouseButtonMask = 0; // Global tanım
 
     // Fare hareketi
     canvas.addEventListener('mousemove', e => {

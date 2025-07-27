@@ -9,9 +9,10 @@ const controlSchema = z.object({ type:z.literal('control'), action:z.enum(['requ
 const inputSchema = z.object({ type:z.literal('input'), inputType:z.string(), payload:z.any() });
 
 class PeerManager extends EventEmitter {
-  constructor(wss) {
+  constructor(wss, vnc) {
     super();
     this.wss = wss;
+    this.vnc = vnc; // VNC istemcisini sakla
     this.peers = new Map();
     this.usernames = new Set();
     this.currentController = null; // clientId
@@ -21,7 +22,6 @@ class PeerManager extends EventEmitter {
     this.controlQueue = []; // Array of {clientId, username, requestTime}
     this.lastExpiredController = null; // Track who was the last controller to expire
     this._wire();
-    
     // Start the control timer
     this._startControlTimer();
   }
@@ -238,6 +238,10 @@ class PeerManager extends EventEmitter {
   }
 
   _grantNextController() {
+    // Kontrol değişiminde VNC durumunu sıfırla
+    if (this.vnc && typeof this.vnc.resetInputState === 'function') {
+      this.vnc.resetInputState();
+    }
     const next = this.controlQueue.shift();
     this.currentController = next ? next.clientId : null;
     this.currentControllerUsername = next ? next.username : null;
@@ -253,14 +257,10 @@ class PeerManager extends EventEmitter {
         }));
         console.log(`Control granted to ${next.username}`);
       }
-      this.lastExpiredController = null; // A new controller from the queue takes over, so clear flag
+      this.lastExpiredController = null;
     } else {
-      // Queue is empty. If control was released/expired, the lastExpiredController is set.
-      // Now that no one else is in queue, clear it so the previous controller can immediately
-      // re-request and get control without being stuck in a "queue for myself" state.
       this.lastExpiredController = null; 
     }
-    
     this._broadcastController();
     this._broadcastQueueUpdate();
   }
